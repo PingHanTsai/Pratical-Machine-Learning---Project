@@ -1,0 +1,131 @@
+---
+title: "Practical Machine Learning - Project"
+author: "PHT"
+date: "Wednesday, November 18, 2015"
+output: html_document
+---
+
+
+```{r, echo = TRUE, cache = TRUE, message = FALSE}
+
+library(caret)
+library(rpart)
+library(randomForest)
+
+```
+
+
+## Data Loading
+
+```{r data_loading, cache = TRUE}
+
+# load data
+training = read.csv(file="pml-training.csv", header=TRUE, as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+testing = read.csv(file="pml-testing.csv", header=TRUE, as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+
+training$classe <- as.factor(training$classe)  
+
+NAindex = apply(training,2,function(x) {sum(is.na(x))}) 
+training = training[ , which(NAindex == 0)]
+NAindex = apply(testing,2,function(x) {sum(is.na(x))}) 
+testing = testing[ , which(NAindex == 0)]
+
+v = which(lapply(training, class) %in% "numeric")
+preObj = preProcess(training[,v],method=c('knnImpute', 'center', 'scale'))
+mytraining = predict(preObj, training[,v])
+mytraining$classe = training$classe
+
+mytesting = predict(preObj,testing[,v])
+
+```
+
+## Data Partitioning
+
+* Training and Validation Data Sets
+
+```{r data_partition, cache = TRUE}
+set.seed(10)
+inTrain = createDataPartition(y=mytraining$classe, p=0.6, list=F)
+train1 = mytraining[inTrain, ]
+train2 = mytraining[-inTrain, ]
+```
+
+
+## Data Cleaning
+
+* Remove close to zero covariates and those with >90% missing values because they won't have much predictive power.       
+
+```{r data_processing, cache = TRUE}
+
+# remove near zero covariates
+nzv = nearZeroVar(train1, saveMetrics = TRUE)
+train1 = train1[ , nzv$nzv == FALSE]
+train2 = train2[ , nzv$nzv == FALSE]
+
+```
+
+
+## Trees Model
+        
+```{r tree_fit, cache = TRUE}
+
+set.seed(123)
+model_tree = rpart(classe ~ ., data = train1, method = "class")
+prediction_tree = predict(model_tree, train2, type = "class")
+confusion_tree = confusionMatrix(prediction_tree, train2$classe)
+confusion_tree
+
+```
+
+
+## Random Forests Model
+
+```{r rf_fit, cache = TRUE}
+
+set.seed(123)
+model_rf = randomForest(classe ~ ., data = train1)
+prediction_rf = predict(model_rf, train2, type = "class")
+confusion_rf <- confusionMatrix(prediction_rf, train2$classe)
+confusion_rf
+
+```
+
+The accuracy is almost 1. There my predicted accuracy for the out-of-sample error is close to 0. That is a great result so that I will use Random Forests model to predict the out-of-sample data.
+
+
+## Re-training the full testing data and build the model
+
+```{r rf_fit_final, cache = TRUE}
+
+nzv = nearZeroVar(mytraining, saveMetrics = TRUE)
+mytraining = mytraining[ , nzv$nzv == FALSE]
+mytraining = mytraining[ , nzv$nzv == FALSE]
+
+set.seed(123)
+model_rf_final = randomForest(classe ~ ., data = mytraining)
+
+```
+
+
+## Fit the testing data
+
+```{r fitting_data, cache = TRUE}
+
+prediction_rf_final= predict(model_rf_final, mytesting, type = 'class')
+
+```
+
+
+## Output final predictions
+
+```{r results}
+# write prediction files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./prediction/problem_id_", i, ".txt")
+    write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+pml_write_files(as.character(prediction_rf_final))
+```
